@@ -6,31 +6,36 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"reflect"
 	"sync"
 
 	utils "github.com/Laisky/go-utils"
 	"github.com/RoaringBitmap/roaring"
+	"github.com/golang/protobuf/proto"
 	"github.com/pkg/errors"
-	"github.com/ugorji/go/codec"
 	"go.uber.org/zap"
 )
 
 var (
 	once     = &sync.Once{}
 	bitOrder = binary.BigEndian
+	bs       = binary.BigEndian
+)
+
+const (
+	MaxUint32 = 4294967295
 )
 
 type DataEncoder struct {
-	encoder   *codec.Encoder
-	writeChan chan interface{}
-	writer    *bufio.Writer
+	writeChan        chan interface{}
+	writer           *bufio.Writer
+	msgByte, lenByte []byte
 }
 
 type DataDecoder struct {
-	decoder  *codec.Decoder
-	readChan chan interface{}
-	reader   *bufio.Reader
+	readChan         chan interface{}
+	reader           *bufio.Reader
+	msgByte, lenByte []byte
+	msgLen           uint32
 }
 
 type IdsEncoder struct {
@@ -43,19 +48,19 @@ type IdsDecoder struct {
 	reader *bufio.Reader
 }
 
-func NewCodec() *codec.MsgpackHandle {
-	_codec := &codec.MsgpackHandle{}
-	_codec.RawToString = false
-	_codec.MapType = reflect.TypeOf(map[string]interface{}(nil))
-	_codec.DecodeOptions.MapValueReset = true
-	return _codec
-}
+// func NewCodec() *codec.MsgpackHandle {
+// 	_codec := &codec.MsgpackHandle{}
+// 	_codec.RawToString = false
+// 	_codec.MapType = reflect.TypeOf(map[string]interface{}(nil))
+// 	_codec.DecodeOptions.MapValueReset = true
+// 	return _codec
+// }
 
 func NewDataEncoder(fp *os.File) *DataEncoder {
 	writer := bufio.NewWriterSize(fp, BufSize)
 	return &DataEncoder{
 		writer:  writer,
-		encoder: codec.NewEncoder(writer, NewCodec()),
+		lenByte: make([]byte, 4),
 	}
 }
 
@@ -77,18 +82,25 @@ func NewDataDecoder(fp *os.File) *DataDecoder {
 	reader := bufio.NewReaderSize(fp, BufSize)
 	return &DataDecoder{
 		reader:  reader,
-		decoder: codec.NewDecoder(reader, NewCodec()),
+		lenByte: make([]byte, 4),
+		msgByte: make([]byte, MaxUint32),
 	}
 }
 
-func (enc *DataEncoder) Write(msg *map[string]interface{}) (err error) {
-	if err = enc.encoder.Encode(msg); err != nil {
-		return errors.Wrap(err, "try to Encode journal data got error")
+func (enc *DataEncoder) Write(msg Message) (err error) {
+	enc.msgByte, err = proto.Marshal(msg)
+	if err != nil {
+		return errors.Wrap(err, "can not marshal msg")
 	}
 
-	// if err = enc.writer.Flush(); err != nil {
-	// 	return errors.Wrap(err, "try to flush journal data got error")
-	// }
+	bs.PutUint32(enc.lenByte, uint32(len(enc.msgByte)))
+	if _, err = enc.writer.Write(enc.lenByte); err != nil {
+		return errors.Wrap(err, "can not write msg length")
+	}
+	if _, err = enc.writer.Write(enc.msgByte); err != nil {
+		return errors.Wrap(err, "can not write msg")
+	}
+
 	return nil
 }
 
@@ -96,8 +108,26 @@ func (enc *DataEncoder) Flush() error {
 	return enc.writer.Flush()
 }
 
-func (dec *DataDecoder) Read(v *map[string]interface{}) error {
-	return dec.decoder.Decode(v)
+func (dec *DataDecoder) Read(v Message) (err error) {
+	if _, err = dec.reader.Read(dec.lenByte); err == io.EOF {
+		return io.EOF
+	} else if err != nil {
+		return errors.Wrap(err, "can not read msg length")
+	}
+
+	dec.msgLen = bs.Uint32(dec.lenByte)
+	if dec.msgLen == 0 {
+		utils.Logger.Error("msg length must not be 0", zap.Uint32("len", dec.msgLen))
+	}
+	// utils.Logger.Debug("load msg length", zap.Uint32("len", dec.msgLen))
+	if _, err = dec.reader.Read(dec.msgByte[:dec.msgLen]); err != nil {
+		return errors.Wrap(err, "can not read msg length")
+	}
+	if err = proto.Unmarshal(dec.msgByte[:dec.msgLen], v); err != nil {
+		return errors.Wrap(err, "can not unmarshal msg")
+	}
+
+	return nil
 }
 
 func (enc *IdsEncoder) Write(id int64) (err error) {
@@ -179,8 +209,4 @@ func (dec *IdsDecoder) ReadAllToBmap() (ids *roaring.Bitmap, err error) {
 	}
 
 	return bitmap, nil
-}
-
-func GetId(data map[string]interface{}) int64 {
-	return data["id"].(int64)
 }

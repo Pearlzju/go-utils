@@ -11,6 +11,7 @@ import (
 
 	utils "github.com/Laisky/go-utils"
 	"github.com/Laisky/go-utils/journal"
+	"github.com/Laisky/go-utils/journal/protocols"
 )
 
 func BenchmarkLock(b *testing.B) {
@@ -56,13 +57,14 @@ func TestJournal(t *testing.T) {
 		RotateCheckIntervalNum: 50,
 	}
 	j := journal.NewJournal(cfg)
-	data := map[string]interface{}{}
+	data := &protocols.Message{
+		Tag: "test",
+	}
 	threshold := int64(50)
 
-	for id, val := range fakedata(1000) {
-		data["id"] = id
-		data["val"] = val
-		if err = j.WriteData(&data); err != nil {
+	for id, _ := range fakedata(1000) {
+		data.Id = id
+		if err = j.WriteData(data); err != nil {
 			t.Fatalf("got error: %+v", err)
 		}
 
@@ -84,15 +86,15 @@ func TestJournal(t *testing.T) {
 	}
 	i := 0
 	for {
-		if err = j.LoadLegacyBuf(&data); err == io.EOF {
+		if err = j.LoadLegacyBuf(data); err == io.EOF {
 			break
 		} else if err != nil {
 			t.Fatalf("got error: %+v", err)
 		}
 
-		t.Logf("got: %v", journal.GetId(data))
-		if journal.GetId(data) >= threshold {
-			t.Errorf("should not got id: %+v", journal.GetId(data))
+		t.Logf("got: %v", data.GetId())
+		if data.GetId() >= threshold {
+			t.Errorf("should not got id: %+v", data.GetId())
 		}
 
 		i++
@@ -117,12 +119,16 @@ func BenchmarkJournal(b *testing.B) {
 		BufSizeBytes: 100,
 	}
 	j := journal.NewJournal(cfg)
-	data := map[string]interface{}{"id": int64(1), "data": "xxx"}
+	data := &protocols.Message{
+		Id:  1,
+		Tag: "test",
+		Msg: map[string]string{"log": "xxx"},
+	}
 	id := int64(1)
 
 	b.Run("store", func(b *testing.B) {
 
-		if err = j.WriteData(&data); err != nil {
+		if err = j.WriteData(data); err != nil {
 			b.Fatalf("got error: %+v", err)
 		}
 
@@ -136,11 +142,10 @@ func BenchmarkJournal(b *testing.B) {
 	}
 
 	b.Run("load", func(b *testing.B) {
-		if err = j.LoadLegacyBuf(&data); err == io.EOF {
+		if err = j.LoadLegacyBuf(data); err == io.EOF {
 			return
 		} else if err != nil {
 			b.Fatalf("got error: %+v", err)
 		}
 	})
-
 }

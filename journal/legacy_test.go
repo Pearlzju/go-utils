@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Laisky/go-utils/journal"
+	"github.com/Laisky/go-utils/journal/protocols"
 )
 
 func TestLegacy(t *testing.T) {
@@ -47,15 +48,23 @@ func TestLegacy(t *testing.T) {
 
 	// put data
 	dataEncoder := journal.NewDataEncoder(dataFp1)
-	dataEncoder.Write(&map[string]interface{}{"data": "data 1", "id": int64(1)})
-	dataEncoder.Write(&map[string]interface{}{"data": "data 2", "id": int64(2)})
+	if err = dataEncoder.Write(&protocols.Message{Tag: "test", Id: 1, Msg: map[string]string{"log": "111"}}); err != nil {
+		t.Fatalf("got error: %+v", err)
+	}
+	if err = dataEncoder.Write(&protocols.Message{Tag: "test", Id: 2, Msg: map[string]string{"log": "222"}}); err != nil {
+		t.Fatalf("got error: %+v", err)
+	}
 	if err = dataEncoder.Flush(); err != nil {
 		t.Fatalf("got error: %+v", err)
 	}
 
 	dataEncoder = journal.NewDataEncoder(dataFp2)
-	dataEncoder.Write(&map[string]interface{}{"data": "data 21", "id": int64(21)})
-	dataEncoder.Write(&map[string]interface{}{"data": "data 22", "id": int64(22)})
+	if err = dataEncoder.Write(&protocols.Message{Tag: "test", Id: 3, Msg: map[string]string{"log": "333"}}); err != nil {
+		t.Fatalf("got error: %+v", err)
+	}
+	if err = dataEncoder.Write(&protocols.Message{Tag: "test", Id: 4, Msg: map[string]string{"log": "444"}}); err != nil {
+		t.Fatalf("got error: %+v", err)
+	}
 	if err = dataEncoder.Flush(); err != nil {
 		t.Fatalf("got error: %+v", err)
 	}
@@ -66,7 +75,7 @@ func TestLegacy(t *testing.T) {
 	if err = idsEncoder.Write(1); err != nil {
 		t.Fatalf("got error: %+v", err)
 	}
-	if err = idsEncoder.Write(21); err != nil {
+	if err = idsEncoder.Write(2); err != nil {
 		t.Fatalf("got error: %+v", err)
 	}
 	if err = idsEncoder.Flush(); err != nil {
@@ -74,7 +83,7 @@ func TestLegacy(t *testing.T) {
 	}
 
 	idsEncoder = journal.NewIdsEncoder(idsFp2)
-	if err = idsEncoder.Write(22); err != nil {
+	if err = idsEncoder.Write(3); err != nil {
 		t.Fatalf("got error: %+v", err)
 	}
 	if err = idsEncoder.Flush(); err != nil {
@@ -87,34 +96,41 @@ func TestLegacy(t *testing.T) {
 	)
 	idmaps, err := legacy.LoadAllids()
 	t.Logf("got ids: %+v", idmaps)
-	if err = idsEncoder.Write(22); err != nil {
-		t.Fatalf("got error: %+v", err)
+	// if err = idsEncoder.Write(22); err != nil {
+	// 	t.Fatalf("got error: %+v", err)
+	// }
+
+	if !idmaps.ContainsInt(1) {
+		t.Fatal("should contains 1")
 	}
-	if idmaps.ContainsInt(0) {
-		t.Fatal("should not contains 0")
+	if !idmaps.ContainsInt(2) {
+		t.Fatal("should contains 2")
 	}
-	if idmaps.ContainsInt(33) {
-		t.Fatal("should not contains 33")
+	if !idmaps.ContainsInt(3) {
+		t.Fatal("should contains 3")
 	}
-	if idmaps.ContainsInt(2) {
-		t.Fatal("should not contains 2")
+	if idmaps.ContainsInt(4) {
+		t.Fatal("should not contains 4")
+	}
+	if idmaps.ContainsInt(5) {
+		t.Fatal("should not contains 5")
 	}
 
 	dataIds := []int64{}
 	for {
-		data := map[string]interface{}{}
-		err = legacy.Load(&data)
+		data := &protocols.Message{}
+		err = legacy.Load(data)
 		if err == io.EOF {
 			break
 		} else if err != nil {
 			t.Fatalf("got error: %+v", err)
 		}
-		dataIds = append(dataIds, journal.GetId(data))
+		dataIds = append(dataIds, data.GetId())
 	}
 	t.Logf("got dataIds: %+v", dataIds)
 	for _, id := range dataIds {
-		if id != 2 {
-			t.Fatal("should equal to 2")
+		if id != 4 {
+			t.Fatal("should equal to 4")
 		}
 	}
 }
@@ -137,9 +153,9 @@ func TestEmptyLegacy(t *testing.T) {
 	}
 	t.Logf("load ids: %+v", ids)
 
-	data := map[string]interface{}{}
+	data := &protocols.Message{}
 	for {
-		if err = legacy.Load(&data); err == io.EOF {
+		if err = legacy.Load(data); err == io.EOF {
 			return
 		} else if err != nil {
 			t.Fatalf("got error: %+v", err)

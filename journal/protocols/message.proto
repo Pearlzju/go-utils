@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package protocols;
+
+message Message {
+    map<string, string> msg = 1;
+    string tag = 2;
+    int64 id = 3;
+}

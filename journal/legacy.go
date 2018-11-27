@@ -48,7 +48,7 @@ func (l *LegacyLoader) startFileCleaner() {
 	}
 }
 
-func (l *LegacyLoader) Load(data *map[string]interface{}) (err error) {
+func (l *LegacyLoader) Load(data Message) (err error) {
 	utils.Logger.Debug("LegacyLoader.Load...")
 	if l.ctx.ids == nil { // first run
 		if len(l.dataFNames) == 0 { // no legacy files
@@ -92,7 +92,7 @@ READ_NEW_LINE:
 		return errors.Wrap(err, "try to load data file got error")
 	}
 
-	id = GetId(*data)
+	id = data.GetId()
 	if l.ctx.ids.ContainsInt(int(id)) { // duplicated
 		utils.Logger.Debug("data already consumed", zap.Int64("id", id))
 		goto READ_NEW_LINE

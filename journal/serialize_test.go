@@ -1,52 +1,18 @@
 package journal_test
 
 import (
-	"bufio"
 	"io"
 	"io/ioutil"
 	"math"
 	"os"
-	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	utils "github.com/Laisky/go-utils"
 	"github.com/Laisky/go-utils/journal"
-	"github.com/ugorji/go/codec"
+	"github.com/Laisky/go-utils/journal/protocols"
 )
-
-func TestSerializer(t *testing.T) {
-	fp, err := ioutil.TempFile("", "journal-test")
-	if err != nil {
-		t.Fatalf("%+v", err)
-	}
-	defer fp.Close()
-	defer os.Remove(fp.Name())
-	t.Logf("create file name: %v", fp.Name())
-
-	m := map[string]interface{}{"tag": "testtag", "message": 123}
-
-	encoder := journal.NewDataEncoder(fp)
-	if err = encoder.Write(&m); err != nil {
-		t.Fatalf("%+v", err)
-	}
-	if err = fp.Sync(); err != nil {
-		t.Fatalf("%+v", err)
-	}
-
-	var got = map[string]interface{}{}
-	fp.Seek(0, 0)
-	decoder := journal.NewDataDecoder(fp)
-	if err = decoder.Read(&got); err != nil {
-		t.Fatalf("%+v", err)
-	}
-
-	t.Logf("got: %+v", got)
-	if string(got["tag"].([]byte)) != m["tag"] ||
-		int(got["message"].(int64)) != m["message"] {
-		t.Errorf("expect %v:%v, got %v:%v", m["tag"], m["message"], string(got["tag"].([]byte)), int(got["message"].(int64)))
-	}
-}
 
 func BenchmarkSerializer(b *testing.B) {
 	fp, err := ioutil.TempFile("", "journal-test")
@@ -56,36 +22,45 @@ func BenchmarkSerializer(b *testing.B) {
 	defer fp.Close()
 	defer os.Remove(fp.Name())
 	b.Logf("create file name: %v", fp.Name())
-	m := map[string]interface{}{"tag": "tag", "message": "jr32oirj23r2ifj32ofjfwefefwfwfwefwefwef 234rt34t 34t 34t43t 34t o2jfo2fjof2"}
-	encoder := journal.NewDataEncoder(fp)
 
+	m := &protocols.Message{
+		Tag: "test.sit",
+		Id:  10,
+		Msg: map[string]string{
+			"log": "231289789471924",
+		},
+	}
+	encoder := journal.NewDataEncoder(fp)
 	b.Run("encoder", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			if err = encoder.Write(&m); err != nil {
+			if err = encoder.Write(m); err != nil {
 				b.Fatalf("%+v", err)
 			}
 		}
-		encoder.Flush()
-		fp.Sync()
 	})
 
-	fpath := fp.Name()
-	fp.Close()
-	if fp, err = os.Open(fpath); err != nil {
-		b.Fatal("can not open file")
-	}
+	encoder.Flush()
+	fp.Sync()
+	fp.Seek(0, 0)
+
+	fs, _ := fp.Stat()
+	b.Logf("file length: %v", fs.Size())
+
 	decoder := journal.NewDataDecoder(fp)
+	time.Sleep(1)
+	v := &protocols.Message{}
 	b.Run("decoder", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			v := map[string]interface{}{}
-			if err = decoder.Read(&v); err == io.EOF {
+			if err = decoder.Read(v); err == io.EOF {
 				return
 			} else if err != nil {
-				b.Fatalf("%+v", err)
+				return
+				// b.Fatalf("%+v", err)
 			}
 
-			if string(v["tag"].([]byte)) != m["tag"].(string) ||
-				string(v["message"].([]byte)) != m["message"].(string) {
+			// b.Logf("got msg <%v>", i)
+			if v.Tag != m.Tag ||
+				v.Msg["log"] != m.GetMsg()["log"] {
 				b.Fatal("load incorrect")
 			}
 		}
@@ -138,15 +113,7 @@ func TestIdsSerializer(t *testing.T) {
 	}
 }
 
-func NewCodec() *codec.MsgpackHandle {
-	_codec := &codec.MsgpackHandle{}
-	_codec.RawToString = false
-	_codec.MapType = reflect.TypeOf(map[string]interface{}(nil))
-	_codec.DecodeOptions.MapValueReset = true
-	return _codec
-}
-
-func TestCodec(t *testing.T) {
+func TestDataSerializer(t *testing.T) {
 	fp, err := ioutil.TempFile("", "journal-test")
 	if err != nil {
 		t.Fatalf("%+v", err)
@@ -155,32 +122,44 @@ func TestCodec(t *testing.T) {
 	defer os.Remove(fp.Name())
 	t.Logf("create file name: %v", fp.Name())
 
-	encoder := codec.NewEncoder(bufio.NewWriter(fp), NewCodec())
-
+	encoder := journal.NewDataEncoder(fp)
 	var (
-		data = map[string]interface{}{}
-		msg  string
+		data = &protocols.Message{
+			Tag: "test.sit",
+			Id:  10,
+			Msg: map[string]string{},
+		}
 	)
-	for i := 0; i < 100; i++ {
-		msg = "12345" + utils.RandomStringWithLength(200-i) + "67890"
-		data["id"] = i
-		data["message"] = map[string]interface{}{"log": msg}
-		if err = encoder.Encode(&data); err != nil {
+
+	var totalCnt = 10000
+	for i := 0; i < totalCnt; i++ {
+		data.Msg["log"] = "12345" + utils.RandomStringWithLength(200)
+		if err = encoder.Write(data); err != nil {
 			t.Fatalf("got error: %+v", err)
 		}
 	}
 
+	encoder.Flush()
+	fp.Sync()
 	fp.Seek(0, 0)
-	data["message"] = map[string]interface{}{}
-	decoder := codec.NewDecoder(bufio.NewReader(fp), NewCodec())
+	data = &protocols.Message{}
+	decoder := journal.NewDataDecoder(fp)
+	i := 0
 	for {
-		if err = decoder.Decode(&data); err == io.EOF {
+		if err = decoder.Read(data); err == io.EOF {
 			t.Log("all done")
 			break
 		} else if err != nil {
 			t.Fatalf("got error: %+v", err)
 		}
 
-		t.Log(string(data["message"].(map[string]interface{})["log"].([]byte)))
+		i++
+		if data.GetId() != 10 ||
+			data.Tag != "test.sit" {
+			t.Fatalf("msg error: %+v", data)
+		}
+	}
+	if i != totalCnt {
+		t.Fatalf("number not match")
 	}
 }

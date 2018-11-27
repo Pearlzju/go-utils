@@ -9,14 +9,14 @@ import (
 	"time"
 
 	utils "github.com/Laisky/go-utils"
+	"github.com/golang/protobuf/proto"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
 
-type Data interface {
+type Message interface {
 	GetId() int64
-	SetId(int64)
-	SetData(map[string]interface{})
+	proto.Message
 }
 
 type JournalConfig struct {
@@ -115,7 +115,7 @@ func (j *Journal) LoadMaxId() (int64, error) {
 	return j.legacy.LoadMaxId()
 }
 
-func (j *Journal) WriteData(data *map[string]interface{}) (err error) {
+func (j *Journal) WriteData(data Message) (err error) {
 	j.l.RLock() // will blocked by flush & rotate
 	defer j.l.RUnlock()
 
@@ -126,7 +126,7 @@ func (j *Journal) WriteData(data *map[string]interface{}) (err error) {
 		}
 	}
 
-	utils.Logger.Debug("write data", zap.Int64("id", GetId(*data)))
+	utils.Logger.Debug("write data", zap.Int64("id", data.GetId()))
 	return j.dataEnc.Write(data)
 }
 
@@ -199,7 +199,7 @@ func (j *Journal) UnLockLegacy() bool {
 
 // LoadLegacyBuf load legacy data one by one
 // ⚠️Warn: should call LockLegacy first
-func (j *Journal) LoadLegacyBuf(data *map[string]interface{}) (err error) {
+func (j *Journal) LoadLegacyBuf(data Message) (err error) {
 	j.l.RLock()
 	defer j.l.RUnlock()
 
