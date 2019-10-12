@@ -1,4 +1,4 @@
-package ginMiddlewares_test
+package middlewares_test
 
 import (
 	"net/http"
