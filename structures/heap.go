@@ -69,7 +69,20 @@ func (p *PriorityQ) Push(x interface{}) {
 	p.q = append(p.q, item)
 }
 
-// Pop pop highest priority item
+// Remove remove an specific item
+func (p *PriorityQ) Remove(v HeapItemItf) (ok bool) {
+	for i, it := range p.q {
+		if it == v {
+			p.q = append(p.q[:i], p.q[i+1:]...)
+			return true
+		}
+	}
+
+	return false
+}
+
+// Pop pop from the tail.
+// if `descend=True`, pop the smallest item
 func (p *PriorityQ) Pop() (popped interface{}) {
 	utils.Logger.Debug("pop item")
 	n := len(p.q)
@@ -222,6 +235,8 @@ func (h *LimitSizeHeap) Push(item HeapItemItf) HeapItemItf {
 	return nil
 }
 
+// Pop pop from the tail.
+// if `descend=True`, pop the smallest item
 func (h *LimitSizeHeap) Pop() HeapItemItf {
 	if h.size == 0 {
 		return nil
